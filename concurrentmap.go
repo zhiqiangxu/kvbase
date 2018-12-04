@@ -95,10 +95,12 @@ func (m *concurrentMap) RangeShardLocked(idx int, f func(key string, val entry) 
 	}
 }
 
-func (m *concurrentMap) ClearShardLocked(idx int) {
+func (m *concurrentMap) ClearShardLocked(idx int) (len int) {
 	if idx >= len(m.shards) {
 		panic("idx out of shard range")
 	}
 
+	len = len(m.shards[idx].kv)
 	m.shards[idx].kv = make(map[string]entry)
+	return
 }

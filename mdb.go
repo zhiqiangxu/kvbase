@@ -255,8 +255,7 @@ func (mdb *DB) flush() {
 	}
 }
 
-// flushOnce will STW
-// TODO metric
+// flushOnce will flush data from mem to disk shard by shard
 func (mdb *DB) flushOnce(exit bool) {
 	atomic.CompareAndSwapInt32(&mdb.state, int32(Running), int32(Flushing))
 
@@ -291,7 +290,7 @@ func (mdb *DB) flushOnce(exit bool) {
 		if err != nil {
 			logger.Error("batch.Flush", err)
 		}
-		mdb.value.ClearShardLocked(i)
+		count += mdb.value.ClearShardLocked(i)
 		mdb.value.UnlockShard(i)
 	}
 
