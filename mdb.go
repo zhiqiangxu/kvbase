@@ -55,8 +55,7 @@ const (
 // DB model
 type DB struct {
 	db    *badger.DB
-	lck   sync.RWMutex
-	value map[string]entry
+	value *concurrentMap
 	// cache   map[string][]byte // TODO replace with lru
 	orc          *oracle
 	wg           sync.WaitGroup
@@ -82,7 +81,7 @@ type request struct {
 func New(db *badger.DB, flushLatency kitmetrics.Histogram, writeLatency kitmetrics.Histogram) *DB {
 	mdb := &DB{
 		db:    db,
-		value: make(map[string]entry), orc: newOracle(),
+		value: newConcurrentMap(), orc: newOracle(),
 		writeCh: make(chan *request, 1000), flushLatency: flushLatency,
 		closeCh: make(chan struct{}), flushCh: make(chan struct{}),
 		writeLatency: writeLatency}
@@ -115,15 +114,10 @@ func (mdb *DB) get(txn *Txn, key []byte, finger uint64) (ret []byte, err error) 
 		}
 	}()
 
-	mdb.lck.RLock()
-
-	value, ok := mdb.getFromMemLocked(txn, key)
+	value, ok := mdb.getFromMem(txn, key)
 	if ok {
-		mdb.lck.RUnlock()
 		return copySlice(value), nil
 	}
-
-	mdb.lck.RUnlock()
 
 	err = RetryUntilSuccess(maxRetry, retryWait, "mdb.db.Update", func() error {
 		return mdb.db.Update(func(txn *badger.Txn) error {
@@ -149,19 +143,15 @@ func (mdb *DB) get(txn *Txn, key []byte, finger uint64) (ret []byte, err error) 
 	return
 }
 
-func (mdb *DB) getFromMemLocked(txn *Txn, key []byte) ([]byte, bool) {
+func (mdb *DB) getFromMem(txn *Txn, key []byte) ([]byte, bool) {
 	keyStr := qrpc.String(key)
-	value, ok := mdb.value[keyStr]
+	value, ok := mdb.value.Get[keyStr]
 	if ok {
 		if txn.readTs < value.version {
-			return nil, false
+			return nil, ErrConflict
 		}
 		return value.data, true
 	}
-	// value, ok = mdb.cache[key]
-	// if ok {
-	// 	return value, true
-	// }
 
 	return nil, false
 }
@@ -197,38 +187,28 @@ func (mdb *DB) doWrite() {
 				break
 			}
 
-			newTs := mdb.orc.currentTxnTs + 1
-			var toFlush bool
-
 			mdb.orc.wrapMutate(func() {
-				mdb.lck.Lock()
 				start := time.Now()
+
+				newTs := mdb.orc.advanceCurrentTs(req.txn)
 				for k, v := range req.txn.pendingWrites {
-					mdb.value[k] = entry{data: copySlice(v), version: newTs}
+					_, size := mdb.value.Set(k, entry{data: copySlice(v), version: newTs})
+					if size > flushSize {
+						select {
+						case mdb.flushCh <- struct{}{}:
+						case <-mdb.closeCh:
+							mdb.cancelPendingWrites()
+							return
+						default: //flushing
+						}
+					}
 				}
 
-				if len(mdb.value) > flushSize {
-					toFlush = true
-				} else {
-					toFlush = false
-				}
-				mdb.lck.Unlock()
+				req.respCh <- nil
 				writeLatency.Observe(time.Now().Sub(start).Seconds())
 
-				mdb.orc.advanceCurrentTs(req.txn)
 			})
 
-			req.respCh <- nil
-
-			if toFlush {
-				select {
-				case mdb.flushCh <- struct{}{}:
-				case <-mdb.closeCh:
-					mdb.cancelPendingWrites()
-					return
-				default: //flushing
-				}
-			}
 		case <-mdb.closeCh:
 			mdb.cancelPendingWrites()
 			return
@@ -275,11 +255,9 @@ func (mdb *DB) flush() {
 func (mdb *DB) flushOnce(exit bool) {
 	atomic.CompareAndSwapInt32(&mdb.state, int32(Running), int32(Flushing))
 
-	mdb.lck.Lock()
-	count := len(mdb.value)
+	count := 0
 	start := time.Now()
 	defer func() {
-		mdb.lck.Unlock()
 		atomic.CompareAndSwapInt32(&mdb.state, int32(Flushing), int32(Running))
 		duration := time.Now().Sub(start)
 		logger.Info("flushOnce took", duration.String(), "count", count)
@@ -290,21 +268,26 @@ func (mdb *DB) flushOnce(exit bool) {
 	batch := mdb.db.NewWriteBatch()
 	defer batch.Cancel()
 	var err error
-	for k, v := range mdb.value {
-		if v.data == nil {
-			err = batch.Delete([]byte(k))
-		} else {
-			err = batch.Set([]byte(k), v.data, 0)
-		}
-
+	for i := 0; i < mdb.value.ShardCount(); i++ {
+		mdb.value.LockShard(i)
+		mdb.value.RangeShardLocked(func(key string, val entry) bool {
+			if v.data == nil {
+				err = batch.Delete([]byte(k))
+			} else {
+				err = batch.Set([]byte(k), v.data, 0)
+			}
+			if err != nil {
+				logger.Error("batch.Set", err, "v", v)
+			}
+		})
+		err = batch.Flush()
 		if err != nil {
-			logger.Error("batch.Set", err, "v", v)
+			logger.Error("batch.Flush", err)
 		}
+		mdb.value.ClearShardLocked(i)
+		mdb.value.UnlockShard(i)
 	}
-	err = batch.Flush()
-	if err != nil {
-		logger.Error("batch.Flush", err)
-	}
+	
 
 	mdb.value = make(map[string]entry)
 }
