@@ -14,10 +14,8 @@ import (
 )
 
 var (
-	// ErrFlushing when flushing
-	ErrFlushing = errors.New("flushing, please retry")
 	// ErrClosed when op on closed
-	ErrClosed = errors.New("closed")
+	ErrClosed = errors.New("kvbase closed")
 	// ErrConflict when txn not serializable
 	ErrConflict = errors.New("conflict, please retry")
 )
