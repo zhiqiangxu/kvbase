@@ -193,7 +193,7 @@ func (mdb *DB) doWrite() {
 			mdb.orc.wrapMutate(func() {
 				start := time.Now()
 
-				newTs := mdb.orc.advanceCurrentTs(req.txn)
+				newTs := mdb.orc.currentTxnTs + 1
 				for k, v := range req.txn.pendingWrites {
 					_, size := mdb.value.Set(k, entry{data: copySlice(v), version: newTs})
 					if size > flushSize {
@@ -206,6 +206,8 @@ func (mdb *DB) doWrite() {
 						}
 					}
 				}
+
+				mdb.orc.advanceCurrentTs(req.txn)
 
 				req.respCh <- nil
 				writeLatency.Observe(time.Now().Sub(start).Seconds())

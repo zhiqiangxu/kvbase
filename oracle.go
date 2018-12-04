@@ -76,6 +76,7 @@ func (o *oracle) wrapMutate(f func()) {
 }
 
 // advanceCurrentTs updates currentTxnTs and commits
+// 应该更新内存后再调，否则会脏读
 func (o *oracle) advanceCurrentTs(txn *Txn) (ts uint64) {
 
 	o.currentTxnTs++
