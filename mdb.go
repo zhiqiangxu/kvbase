@@ -114,10 +114,15 @@ func (mdb *DB) get(txn *Txn, key []byte, finger uint64) (ret []byte, err error) 
 		}
 	}()
 
-	value, ok := mdb.getFromMem(txn, key)
-	if ok {
+	value, err := mdb.getFromMem(txn, key)
+	if err == nil {
 		return copySlice(value), nil
 	}
+	if err != ErrKeyNotFound {
+		return nil, err
+	}
+
+	// handle ErrKeyNotFound
 
 	err = RetryUntilSuccess(maxRetry, retryWait, "mdb.db.Update", func() error {
 		return mdb.db.Update(func(txn *badger.Txn) error {
@@ -143,17 +148,17 @@ func (mdb *DB) get(txn *Txn, key []byte, finger uint64) (ret []byte, err error) 
 	return
 }
 
-func (mdb *DB) getFromMem(txn *Txn, key []byte) ([]byte, bool) {
+func (mdb *DB) getFromMem(txn *Txn, key []byte) ([]byte, error) {
 	keyStr := qrpc.String(key)
-	value, ok := mdb.value.Get[keyStr]
+	value, ok := mdb.value.Get(keyStr)
 	if ok {
 		if txn.readTs < value.version {
 			return nil, ErrConflict
 		}
-		return value.data, true
+		return value.data, nil
 	}
 
-	return nil, false
+	return nil, ErrKeyNotFound
 }
 
 func (mdb *DB) sendToWriteCh(txn *Txn) error {
@@ -265,21 +270,23 @@ func (mdb *DB) flushOnce(exit bool) {
 		logger.Info("flushOnce done")
 	}()
 
-	batch := mdb.db.NewWriteBatch()
-	defer batch.Cancel()
 	var err error
 	for i := 0; i < mdb.value.ShardCount(); i++ {
+		batch := mdb.db.NewWriteBatch()
+
 		mdb.value.LockShard(i)
-		mdb.value.RangeShardLocked(func(key string, val entry) bool {
-			if v.data == nil {
-				err = batch.Delete([]byte(k))
+		mdb.value.RangeShardLocked(i, func(key string, val entry) bool {
+			if val.data == nil {
+				err = batch.Delete([]byte(key))
 			} else {
-				err = batch.Set([]byte(k), v.data, 0)
+				err = batch.Set([]byte(key), val.data, 0)
 			}
 			if err != nil {
-				logger.Error("batch.Set", err, "v", v)
+				logger.Error("batch.Set", err, "v", val)
 			}
+			return true
 		})
+
 		err = batch.Flush()
 		if err != nil {
 			logger.Error("batch.Flush", err)
@@ -287,9 +294,7 @@ func (mdb *DB) flushOnce(exit bool) {
 		mdb.value.ClearShardLocked(i)
 		mdb.value.UnlockShard(i)
 	}
-	
 
-	mdb.value = make(map[string]entry)
 }
 
 // Close Mdb, call twice will panic

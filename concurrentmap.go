@@ -49,7 +49,7 @@ func (m *concurrentMap) Get(key string) (val entry, ok bool) {
 	return
 }
 
-func (m *concurrentMap) Set(key string, val entry) (idx, size int) {
+func (m *concurrentMap) Set(key string, val entry) (idx uint64, size int) {
 	finger := farm.Fingerprint64(qrpc.Slice(key))
 	idx = finger & m.shardMask
 
@@ -58,7 +58,9 @@ func (m *concurrentMap) Set(key string, val entry) (idx, size int) {
 
 	m.shards[idx].kv[key] = val
 
-	return len(m.shards[idx].kv)
+	size = len(m.shards[idx].kv)
+
+	return
 }
 
 func (m *concurrentMap) ShardCount() int {
