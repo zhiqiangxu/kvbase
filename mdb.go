@@ -58,15 +58,13 @@ type DB struct {
 	db    *badger.DB
 	value *concurrentMap
 	// cache   map[string][]byte // TODO replace with lru
-	orc          *oracle
-	wg           sync.WaitGroup
-	writeCh      chan *request
-	closeCh      chan struct{}
-	state        int32
-	flushCh      chan struct{}
-	flushLatency kitmetrics.Histogram
-	writeLatency kitmetrics.Histogram
-	readLatency  kitmetrics.Histogram
+	orc                  *oracle
+	wg                   sync.WaitGroup
+	writeCh              chan *request
+	closeCh              chan struct{}
+	state                int32
+	flushCh              chan struct{}
+	requestLatencyMetric kitmetrics.Histogram
 }
 
 type entry struct {
@@ -80,17 +78,12 @@ type request struct {
 }
 
 // New creates DB
-func New(db *badger.DB,
-	flushLatency kitmetrics.Histogram,
-	writeLatency kitmetrics.Histogram,
-	readLatency kitmetrics.Histogram,
-	lockLatency kitmetrics.Histogram) *DB {
+func New(db *badger.DB, requestLatencyMetric kitmetrics.Histogram) *DB {
 	mdb := &DB{
 		db:    db,
-		value: newConcurrentMap(lockLatency), orc: newOracle(),
-		writeCh: make(chan *request, 1000), flushLatency: flushLatency,
-		closeCh: make(chan struct{}), flushCh: make(chan struct{}),
-		writeLatency: writeLatency, readLatency: readLatency}
+		value: newConcurrentMap(), orc: newOracle(),
+		writeCh: make(chan *request, 1000), requestLatencyMetric: requestLatencyMetric,
+		closeCh: make(chan struct{}), flushCh: make(chan struct{})}
 	qrpc.GoFunc(&mdb.wg, mdb.flush)
 	qrpc.GoFunc(&mdb.wg, mdb.doWrite)
 	return mdb
@@ -136,7 +129,7 @@ func (mdb *DB) get(txn *Txn, key []byte) (ret []byte, err error) {
 
 			item, err := txn.Get(key)
 
-			mdb.readLatency.Observe(time.Now().Sub(start).Seconds())
+			mdb.requestLatencyMetric.With("method", "txn.Get", "error", "x").Observe(time.Now().Sub(start).Seconds())
 
 			if err != nil {
 				if err == badger.ErrKeyNotFound {
@@ -188,7 +181,7 @@ func (mdb *DB) sendToWriteCh(txn *Txn) error {
 }
 
 func (mdb *DB) doWrite() {
-	writeLatency := mdb.writeLatency
+	writeLatency := mdb.requestLatencyMetric
 	defer func() {
 		if err := recover(); err != nil {
 			logger.Error("doWrite err", err)
@@ -222,7 +215,7 @@ func (mdb *DB) doWrite() {
 				mdb.orc.advanceCurrentTs(req.txn)
 
 				req.respCh <- nil
-				writeLatency.Observe(time.Now().Sub(start).Seconds())
+				writeLatency.With("method", "mdb.doWrite", "error", "x").Observe(time.Now().Sub(start).Seconds())
 
 			})
 
@@ -277,7 +270,7 @@ func (mdb *DB) flushOnce(exit bool) {
 		atomic.CompareAndSwapInt32(&mdb.state, int32(Flushing), int32(Running))
 		duration := time.Now().Sub(start)
 		logger.Info("flushOnce took", duration.String(), "count", count)
-		mdb.flushLatency.Observe(duration.Seconds())
+		mdb.requestLatencyMetric.With("method", "mdb.flushOnce", "error", "x").Observe(duration.Seconds())
 		logger.Info("flushOnce done")
 	}()
 
