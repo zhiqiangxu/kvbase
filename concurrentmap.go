@@ -24,7 +24,7 @@ type mapShard struct {
 }
 
 func newConcurrentMap() *concurrentMap {
-	return newConcurrentMapWithCount(lockLatency, defaultShardCountPoT)
+	return newConcurrentMapWithCount(defaultShardCountPoT)
 }
 
 func newConcurrentMapWithCount(shardCountPoT uint8) *concurrentMap {
