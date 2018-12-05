@@ -132,7 +132,7 @@ func (mdb *DB) get(txn *Txn, key []byte, finger uint64) (ret []byte, err error) 
 
 			item, err := txn.Get(key)
 
-			readLatency.Observe(time.Now().Sub(start).Seconds())
+			mdb.readLatency.Observe(time.Now().Sub(start).Seconds())
 
 			if err != nil {
 				if err == badger.ErrKeyNotFound {
