@@ -44,7 +44,7 @@ func (mdb *DB) NewTransaction(update bool) (*Txn, error) {
 // View for ro txn
 func (mdb *DB) View(fn func(txn *Txn) error) error {
 	var txn *Txn
-	txn = mdb.NewTransaction(false)
+	txn, _ = mdb.NewTransaction(false)
 	defer txn.Discard()
 
 	return fn(txn)
@@ -52,7 +52,10 @@ func (mdb *DB) View(fn func(txn *Txn) error) error {
 
 // Update for write txn
 func (mdb *DB) Update(fn func(txn *Txn) error) error {
-	txn := mdb.NewTransaction(true)
+	txn, err := mdb.NewTransaction(true)
+	if err != nil {
+		return err
+	}
 	defer txn.Discard()
 
 	if err := fn(txn); err != nil {
