@@ -80,10 +80,14 @@ type request struct {
 }
 
 // New creates DB
-func New(db *badger.DB, flushLatency kitmetrics.Histogram, writeLatency kitmetrics.Histogram, readLatency kitmetrics.Histogram) *DB {
+func New(db *badger.DB,
+	flushLatency kitmetrics.Histogram,
+	writeLatency kitmetrics.Histogram,
+	readLatency kitmetrics.Histogram,
+	lockLatency kitmetrics.Histogram) *DB {
 	mdb := &DB{
 		db:    db,
-		value: newConcurrentMap(), orc: newOracle(),
+		value: newConcurrentMap(lockLatency), orc: newOracle(),
 		writeCh: make(chan *request, 1000), flushLatency: flushLatency,
 		closeCh: make(chan struct{}), flushCh: make(chan struct{}),
 		writeLatency: writeLatency, readLatency: readLatency}
