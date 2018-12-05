@@ -123,24 +123,22 @@ func (mdb *DB) get(txn *Txn, key []byte) (ret []byte, err error) {
 
 	// handle ErrKeyNotFound
 
-	err = RetryUntilSuccess(maxRetry, retryWait, "mdb.db.Update", func() error {
-		return mdb.db.View(func(txn *badger.Txn) error {
-			start := time.Now()
+	err = mdb.db.View(func(txn *badger.Txn) error {
+		start := time.Now()
 
-			item, err := txn.Get(key)
+		item, err := txn.Get(key)
 
-			mdb.requestLatencyMetric.With("method", "txn.Get", "error", "x").Observe(time.Now().Sub(start).Seconds())
+		mdb.requestLatencyMetric.With("method", "txn.Get", "error", "x").Observe(time.Now().Sub(start).Seconds())
 
-			if err != nil {
-				if err == badger.ErrKeyNotFound {
-					return nil
-				}
-				return err
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				return nil
 			}
-
-			ret, err = item.ValueCopy(nil)
 			return err
-		})
+		}
+
+		ret, err = item.ValueCopy(nil)
+		return err
 	})
 
 	if err != nil {
