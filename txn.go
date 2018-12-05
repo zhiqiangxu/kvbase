@@ -29,14 +29,16 @@ type Txn struct {
 }
 
 // NewTransaction returns a Txn
-func (mdb *DB) NewTransaction(update bool) *Txn {
+func (mdb *DB) NewTransaction(update bool) (*Txn, error) {
 	txn := &Txn{update: update, mdb: mdb, pendingWrites: make(map[string][]byte)}
 
 	if update {
-		txn.mdb.orc.addRef()
+		if err := txn.mdb.orc.addRef(); err != nil {
+			return nil, err
+		}
 	}
 	txn.readTs = txn.mdb.orc.currentTs()
-	return txn
+	return txn, nil
 }
 
 // View for ro txn

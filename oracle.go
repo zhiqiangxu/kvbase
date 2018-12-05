@@ -18,8 +18,12 @@ func newOracle() (o *oracle) {
 	return
 }
 
-func (o *oracle) addRef() {
-	atomic.AddInt64(&o.refCount, 1)
+func (o *oracle) addRef() error {
+	count := atomic.AddInt64(&o.refCount, 1)
+	if count > maxUpdateTxn {
+		o.decrRef()
+		return ErrTooManyUpdateTxn
+	}
 }
 
 func (o *oracle) decrRef() {

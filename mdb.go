@@ -18,6 +18,8 @@ var (
 	ErrClosed = errors.New("kvbase closed")
 	// ErrConflict when txn not serializable
 	ErrConflict = errors.New("conflict, please retry")
+	// ErrTooManyUpdateTxn when too many txn for update
+	ErrTooManyUpdateTxn = errors.New("too many update txn, please retry")
 )
 
 type state int32
@@ -31,7 +33,8 @@ const (
 	Closed
 )
 const (
-	flushSize = 10000
+	flushSize    = 10000
+	maxUpdateTxn = 10000
 )
 
 // ***关于事务(Txn)、写缓存(WB)、磁盘、读缓存(RB)的综述***
