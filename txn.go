@@ -2,6 +2,7 @@ package kvbase
 
 import (
 	"errors"
+	"time"
 
 	farm "github.com/dgryski/go-farm"
 )
@@ -72,6 +73,7 @@ func (txn *Txn) Get(key []byte) ([]byte, error) {
 	}
 
 	if txn.update {
+		start1 := time.Now()
 		if v, ok := txn.pendingWrites[string(key)]; ok {
 			if v == nil {
 				return nil, ErrKeyNotFound
@@ -81,6 +83,7 @@ func (txn *Txn) Get(key []byte) ([]byte, error) {
 		}
 		finger := farm.Fingerprint64(key)
 		txn.reads = append(txn.reads, finger)
+		txn.mdb.requestLatencyMetric.With("method", "Txn.Get.finger", "error", "x").Observe(time.Now().Sub(start1).Seconds())
 	}
 
 	v, err := txn.mdb.get(txn, key)

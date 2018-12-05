@@ -113,7 +113,9 @@ func (mdb *DB) get(txn *Txn, key []byte) (ret []byte, err error) {
 		}
 	}()
 
+	start1 := time.Now()
 	value, err := mdb.getFromMem(txn, key)
+	mdb.requestLatencyMetric.With("method", "Txn.Get.mdb.getFromMem", "error", "x").Observe(time.Now().Sub(start1).Seconds())
 	if err == nil {
 		return copySlice(value), nil
 	}
@@ -128,7 +130,7 @@ func (mdb *DB) get(txn *Txn, key []byte) (ret []byte, err error) {
 
 		item, err := txn.Get(key)
 
-		mdb.requestLatencyMetric.With("method", "txn.Get", "error", "x").Observe(time.Now().Sub(start).Seconds())
+		mdb.requestLatencyMetric.With("method", "Txn.Get.mdb.badger.Get", "error", "x").Observe(time.Now().Sub(start).Seconds())
 
 		if err != nil {
 			if err == badger.ErrKeyNotFound {
