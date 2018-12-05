@@ -66,6 +66,7 @@ type DB struct {
 	flushCh      chan struct{}
 	flushLatency kitmetrics.Histogram
 	writeLatency kitmetrics.Histogram
+	readLatency  kitmetrics.Histogram
 }
 
 type entry struct {
@@ -79,13 +80,13 @@ type request struct {
 }
 
 // New creates DB
-func New(db *badger.DB, flushLatency kitmetrics.Histogram, writeLatency kitmetrics.Histogram) *DB {
+func New(db *badger.DB, flushLatency kitmetrics.Histogram, writeLatency kitmetrics.Histogram, readLatency kitmetrics.Histogram) *DB {
 	mdb := &DB{
 		db:    db,
 		value: newConcurrentMap(), orc: newOracle(),
 		writeCh: make(chan *request, 1000), flushLatency: flushLatency,
 		closeCh: make(chan struct{}), flushCh: make(chan struct{}),
-		writeLatency: writeLatency}
+		writeLatency: writeLatency, readLatency: readLatency}
 	qrpc.GoFunc(&mdb.wg, mdb.flush)
 	qrpc.GoFunc(&mdb.wg, mdb.doWrite)
 	return mdb
@@ -126,8 +127,12 @@ func (mdb *DB) get(txn *Txn, key []byte, finger uint64) (ret []byte, err error) 
 	// handle ErrKeyNotFound
 
 	err = RetryUntilSuccess(maxRetry, retryWait, "mdb.db.Update", func() error {
-		return mdb.db.Update(func(txn *badger.Txn) error {
+		return mdb.db.View(func(txn *badger.Txn) error {
+			start := time.Now()
+
 			item, err := txn.Get(key)
+
+			readLatency.Observe(time.Now().Sub(start).Seconds())
 
 			if err != nil {
 				if err == badger.ErrKeyNotFound {
