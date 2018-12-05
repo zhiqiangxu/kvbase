@@ -24,6 +24,7 @@ func (o *oracle) addRef() error {
 		o.decrRef()
 		return ErrTooManyUpdateTxn
 	}
+	return nil
 }
 
 func (o *oracle) decrRef() {
