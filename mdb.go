@@ -103,7 +103,7 @@ func copySlice(s []byte) []byte {
 	return b
 }
 
-func (mdb *DB) get(txn *Txn, key []byte, finger uint64) (ret []byte, err error) {
+func (mdb *DB) get(txn *Txn, key []byte) (ret []byte, err error) {
 	state := state(atomic.LoadInt32(&mdb.state))
 	switch state {
 	case Closed:

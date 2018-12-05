@@ -71,7 +71,6 @@ func (txn *Txn) Get(key []byte) ([]byte, error) {
 		return nil, ErrDiscardedTxn
 	}
 
-	var finger uint64
 	if txn.update {
 		if v, ok := txn.pendingWrites[string(key)]; ok {
 			if v == nil {
@@ -80,13 +79,11 @@ func (txn *Txn) Get(key []byte) ([]byte, error) {
 
 			return copySlice(v), nil
 		}
-		finger = farm.Fingerprint64(key)
+		finger := farm.Fingerprint64(key)
 		txn.reads = append(txn.reads, finger)
-	} else {
-		finger = farm.Fingerprint64(key)
 	}
 
-	v, err := txn.mdb.get(txn, key, finger)
+	v, err := txn.mdb.get(txn, key)
 	return v, err
 }
 
