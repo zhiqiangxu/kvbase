@@ -139,7 +139,9 @@ func (mdb *DB) get(txn *Txn, key []byte) (ret []byte, err error) {
 			return err
 		}
 
+		start2 := time.Now()
 		ret, err = item.ValueCopy(nil)
+		mdb.requestLatencyMetric.With("method", "Txn.Get.mdb.badger.item.ValueCopy", "error", "x").Observe(time.Now().Sub(start2).Seconds())
 		return err
 	})
 
